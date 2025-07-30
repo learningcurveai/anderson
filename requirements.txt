@@ -1,0 +1,7 @@
+openai==1.61.1
+langchain==0.3.19
+flask==3.0.3
+scipy==1.14.1
+Pillow==10.0.0
+git+https://github.com/Zulko/moviepy.git@bc8d1a831d2d1f61abfdf1779e8df95d523947a5
+

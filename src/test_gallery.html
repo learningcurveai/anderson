@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gallery Test</title>
+</head>
+<body>
+    <h1>Search Image Gallery Test</h1>
+    
+    <button onclick="testGallery()">Test Gallery with Sample Images</button>
+    
+    <!-- Search Image Gallery -->
+    <div id="searchGallery" style="margin-left:40;margin-top:10;display:none;">
+      <div style="background:#f0f0f0;padding:5px;border:1px solid #ccc;">
+        <strong>Search Images:</strong>
+        <button onclick="prevSearchImage()" style="margin-left:10px;">◀ Prev</button>
+        <span id="galleryCounter" style="margin:0 10px;">1 / 1</span>
+        <button onclick="nextSearchImage()">Next ▶</button>
+      </div>
+      <div style="width:300;height:200;border:1px solid #ccc;overflow:hidden;">
+        <img id="searchImage" style="max-width:100%;max-height:100%;object-fit:contain;" />
+      </div>
+    </div>
+
+    <script>
+      // Search Image Gallery Functions
+      var searchImages = [];
+      var currentSearchImageIndex = 0;
+
+      function displaySearchImages(images) {
+        searchImages = images;
+        currentSearchImageIndex = 0;
+        
+        if (images.length > 0) {
+          document.getElementById('searchGallery').style.display = 'block';
+          showSearchImage(0);
+        } else {
+          document.getElementById('searchGallery').style.display = 'none';
+        }
+      }
+
+      function showSearchImage(index) {
+        if (searchImages.length === 0) return;
+        
+        currentSearchImageIndex = index;
+        document.getElementById('searchImage').src = searchImages[index];
+        document.getElementById('galleryCounter').textContent = (index + 1) + ' / ' + searchImages.length;
+      }
+
+      function nextSearchImage() {
+        if (searchImages.length === 0) return;
+        var nextIndex = (currentSearchImageIndex + 1) % searchImages.length;
+        showSearchImage(nextIndex);
+      }
+
+      function prevSearchImage() {
+        if (searchImages.length === 0) return;
+        var prevIndex = (currentSearchImageIndex - 1 + searchImages.length) % searchImages.length;
+        showSearchImage(prevIndex);
+      }
+
+      function testGallery() {
+        // Test with sample images
+        var testImages = [
+          'https://via.placeholder.com/300x200/FF0000/FFFFFF?text=Image+1',
+          'https://via.placeholder.com/300x200/00FF00/FFFFFF?text=Image+2',
+          'https://via.placeholder.com/300x200/0000FF/FFFFFF?text=Image+3'
+        ];
+        displaySearchImages(testImages);
+      }
+    </script>
+</body>
+</html>

@@ -1,0 +1,460 @@
+<html>
+  <head>
+    <script>
+      let first_greeting = "Hi";
+
+      var appState = 'not_started'; // not_started, playing, paused
+
+      function onLoad() {
+        var user = "{{user}}";
+        var text = "{{message}}";
+        initialize( user, text );
+
+        first_greeting = text;
+
+        var canvas = document.getElementById('myCanvas');
+        canvas.loaded_image = false
+        
+        // Make canvas clickable to clear images
+        canvas.style.cursor = "pointer";
+        canvas.addEventListener("click", clearCanvas);
+        
+        // Make avatar clickable
+        var avatar = document.getElementById("avatar_image");
+        avatar.style.cursor = "pointer";
+        avatar.addEventListener("click", avatarClick);
+      }
+      
+      function initialize( user, text ) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/initialize", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+          
+    	  document.getElementById("in_progress").style.display="block"; 
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+			      document.getElementById("in_progress").style.display="none"; 
+
+            console.log("...returning from sending data:" + text);
+            var response = JSON.parse(xhr.responseText);
+
+            var audio = document.getElementById("audio_player");
+            audio.src = "{{url_for('static', filename='')}}" + "/" + response.audio_file;
+            audio.load();
+            
+            console.log("...finished processing response...");
+          }
+        };
+        
+        xhr.send(JSON.stringify({user: user, text: text}));
+        console.log("...initializing assistant: " + text);
+      }
+
+      function chat_think(user, text) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/chat_think", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+          
+    	  document.getElementById("in_progress").style.display="block"; 
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+			      document.getElementById("in_progress").style.display="none"; 
+
+            console.log("...returning from sending chat ..." + text);
+            var response = JSON.parse(xhr.responseText);
+
+            var audio = document.getElementById("audio_player");
+            audio.src = "{{url_for('static', filename='')}}" + "/" + response.audio_file;
+            console.log("...preparing to play audio...");
+
+            audio.load();
+            playAudioWithAnimation(audio);
+            appState = 'playing'; // Update state when audio starts playing
+
+            if( response.image_prompt != "" ) generate_image( response.image_prompt )
+
+            console.log("...finished processing response...");
+
+            think_reply(user, text);
+          
+          }
+        };
+
+        var imgData = ""
+        var canvas = document.getElementById("myCanvas");
+        if ( canvas.loaded_image == true ) { 
+            // get the encoded image data from the canvas as a PNG
+            imgData = canvas.toDataURL("image/png")
+            // Don't reset to false - keep image available for follow-up questions
+        }
+        
+        xhr.send(JSON.stringify({user: user, text: text, image: imgData}));
+        console.log("...sending chat ..." + text);
+      }
+
+      function think_reply(user, text) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/think_reply", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        
+    	  document.getElementById("in_progress").style.display="block";
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+			      document.getElementById("in_progress").style.display="none"; 
+
+            console.log("...returning from sending chat ..." + text);
+            var response = JSON.parse(xhr.responseText);
+              
+            document.getElementById("output_text").value = response.response;
+            
+            var audio = document.getElementById("audio_player");
+            audio.src = "{{url_for('static', filename='')}}" + "/" + response.audio_file;
+            console.log("...preparing to play audio...");
+
+            audio.load();
+            playAudioWithAnimation(audio);
+            appState = 'playing'; // Update state when audio starts playing
+
+            if( response.image_prompt != "" ) {
+                load_image( user, response.image_prompt);
+            }
+
+            // Handle search result images
+            console.log("Response received:", response);
+            console.log("Search images in response:", response.search_images);
+            if( response.search_images && response.search_images.length > 0 ) {
+                console.log("Calling displaySearchImages with:", response.search_images);
+                displaySearchImages(response.search_images);
+            } else {
+                console.log("No search images found in response");
+            }
+
+            console.log("...finished processing response...");
+          }
+        };
+        
+        xhr.send(JSON.stringify({user: user, text: text}));
+        console.log("...sending chat ..." + text);
+      }
+
+      // Avatar animation variables
+      var audioContext = null;
+      var analyser = null;
+      var animationId = null;
+      var blinkTimer = null;
+
+      function avatarClick() {
+        var audio = document.getElementById("audio_player");
+        
+        if (appState === 'not_started') {
+          // Start the application
+          startApp();
+          appState = 'playing';
+        } else if (appState === 'playing') {
+          // Pause audio
+          audio.pause();
+          stopAvatarAnimation();
+          appState = 'paused';
+        } else if (appState === 'paused') {
+          // Resume audio
+          audio.play();
+          startAvatarAnimation();
+          appState = 'playing';
+        }
+      }
+
+      function startApp() {
+        var audio = document.getElementById("audio_player");
+        playAudioWithAnimation(audio);
+
+        document.getElementById("output_text").value = first_greeting
+        document.getElementById("input_text").focus();
+        
+        // Add Enter key functionality to input textarea
+        document.getElementById("input_text").addEventListener("keydown", function(event) {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault(); // Prevent new line
+            onSubmit();
+          }
+        });
+      }
+
+      function playAudioWithAnimation(audio) {
+        // Initialize Web Audio API if not already done
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = 64;
+          
+          const source = audioContext.createMediaElementSource(audio);
+          source.connect(analyser);
+          analyser.connect(audioContext.destination);
+        }
+
+        audio.play();
+        startAvatarAnimation();
+
+        // Stop animation when audio ends
+        audio.onended = function() {
+          stopAvatarAnimation();
+          document.getElementById("avatar_image").src = "{{url_for('static', filename='frame_rest.jpg')}}";
+        };
+      }
+
+      function startAvatarAnimation() {
+        if (!analyser) return;
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const avatarImage = document.getElementById("avatar_image");
+
+        function animate() {
+          analyser.getByteFrequencyData(dataArray);
+          
+          // Calculate average volume
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / dataArray.length;
+          const volume = average / 255; // Normalize to 0-1
+
+          // Switch avatar image based on volume
+          if (volume > 0.20) {
+            avatarImage.src = "{{url_for('static', filename='frame_loud.jpg')}}";
+          } else if (volume > 0.10) {
+            avatarImage.src = "{{url_for('static', filename='frame_soft.jpg')}}";
+          } else {
+            avatarImage.src = "{{url_for('static', filename='frame_rest.jpg')}}";
+          }
+
+          // Add occasional blinks during quiet moments
+          if (volume < 0.1 && Math.random() < 0.02) {
+            avatarImage.src = "{{url_for('static', filename='frame_blink.jpg')}}";
+            setTimeout(() => {
+              if (volume < 0.1) avatarImage.src = "{{url_for('static', filename='frame_rest.jpg')}}";
+            }, 150);
+          }
+
+          animationId = requestAnimationFrame(animate);
+        }
+
+        animate();
+      }
+
+      function stopAvatarAnimation() {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+        if (blinkTimer) {
+          clearTimeout(blinkTimer);
+          blinkTimer = null;
+        }
+      }
+
+      function clearCanvas() {
+        var canvas = document.getElementById('myCanvas');
+        var ctx = canvas.getContext('2d');
+        
+        // Clear the canvas visually
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Set flag to false so no image data is sent to backend
+        canvas.loaded_image = false;
+        
+        console.log("Canvas cleared - no image will be sent to backend");
+      }
+        
+      function onSubmit() {
+        var user = "{{user}}";
+        var text = document.getElementById("input_text").value;
+        chat_think(user, text);
+      }
+
+      // Fetch an image used for user conversation ...
+      function load_image(user, image_file_url) {
+
+        var canvas = document.getElementById("myCanvas");
+        var ctx = canvas.getContext("2d");
+          
+        // Create a new image object and set its source to the blob URL
+        var image = new Image();              
+        image.src = image_file_url;
+
+        // When the image is loaded, draw it onto the canvas
+        image.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, 0, 0);
+        };
+      }
+
+
+      // Search Image Gallery Functions
+      var searchImages = [];
+      var currentSearchImageIndex = 0;
+
+      function displaySearchImages(images) {
+        console.log("displaySearchImages called with:", images);
+        console.log("Images array length:", images.length);
+        
+        searchImages = images;
+        currentSearchImageIndex = 0;
+        
+        if (images.length > 0) {
+          console.log("Setting gallery to display:block");
+          document.getElementById('searchGallery').style.display = 'block';
+          console.log("Gallery display style after setting:", document.getElementById('searchGallery').style.display);
+          showSearchImage(0);
+        } else {
+          console.log("No images, hiding gallery");
+          document.getElementById('searchGallery').style.display = 'none';
+        }
+      }
+
+      function showSearchImage(index) {
+        if (searchImages.length === 0) return;
+        
+        currentSearchImageIndex = index;
+        document.getElementById('searchImage').src = searchImages[index];
+        document.getElementById('galleryCounter').textContent = (index + 1) + ' / ' + searchImages.length;
+      }
+
+      function nextSearchImage() {
+        if (searchImages.length === 0) return;
+        var nextIndex = (currentSearchImageIndex + 1) % searchImages.length;
+        showSearchImage(nextIndex);
+      }
+
+      function prevSearchImage() {
+        if (searchImages.length === 0) return;
+        var prevIndex = (currentSearchImageIndex - 1 + searchImages.length) % searchImages.length;
+        showSearchImage(prevIndex);
+      }
+
+    </script>
+
+      
+  </head>
+  <body onload="onLoad()">
+
+    <div style="padding:10px; border: solid lightgrey; border-radius: 15px; background-color: lightslategrey; width:650px; height:515px;">
+
+      <!-- Top Section: Avatar and Reply Textarea -->
+      <table style="margin-left:10;margin-bottom:10px;">
+        <tr>
+          <td>
+            <img id="avatar_image" src="{{url_for('static', filename='frame_rest.jpg')}}" style="width:140px;height:140px;margin-right:10px;" />
+            <audio id="audio_player" style="display:none;"></audio>
+          </td>
+          <td>
+            <div style="position: relative; width: 470px; height: 140px;">
+              <textarea id="output_text" cols="50" rows="9" style="width:475px;height:140px;"></textarea>
+              <img id="in_progress" src="{{url_for('static', filename='inprogress.gif')}}" 
+                  style="position: absolute; bottom: 5px; right: 5px; width: 20px; height: 20px; opacity: 0.5; z-index: 10;"/>
+            </div>
+          </td>
+        </tr>
+      </table>
+      
+      <!-- Chat Input Box -->
+      <div style="margin-left:10;margin-bottom:10px;">
+        <textarea id="input_text" cols="80" rows="3" style="width:100%;max-width:630px;"></textarea>
+      </div>
+      
+      <!-- Bottom Section: Gallery (Left) and Canvas (Right) -->
+      <table style="margin-left:10;">
+        <tr>
+          <td style="vertical-align:top;padding-right:20px;">
+            <!-- Search Image Gallery -->
+            <div id="searchGallery" style="display:block;">
+            
+              <div style="background:#f0f0f0;padding:5px;border:1px solid #ccc;width:300px; font-size: 12px;">
+                <span style="font-weight: 500;">Image Results:</span>
+                <button onclick="prevSearchImage()" style="margin-left:10px;font-size:10px;">◀ Prev</button>
+                <span id="galleryCounter" style="margin:0 10px;">1 / 1</span>
+                <button onclick="nextSearchImage()" style="font-size:10px;">Next ▶</button>
+              </div>
+              <!--
+              <div style="background:#f0f0f0;padding:5px;border:1px solid #ccc;width:300px;">
+                <span style="font-weight: 500;">Image Results:</span>
+                <button onclick="prevSearchImage()" style="margin-left:10px;">◀ Prev</button>
+                <span id="galleryCounter" style="margin:0 10px;">1 / 1</span>
+                <button onclick="nextSearchImage()">Next ▶</button>
+              </div>
+              -->
+
+              <div style="width:305px;height:245px;border:3px solid #e8e8e8; overflow:hidden;">
+                <img id="searchImage" style="max-width:100%;max-height:100%;object-fit:contain;" />
+              </div>
+            </div>
+          </td>
+          <td style="vertical-align:top;">
+
+            <!-- Container for Label + Canvas Box -->
+            <div style="position: relative; width: 290px;">
+
+              <!-- Label Positioned Above the Box -->
+              <div style="position: absolute; top: -5px; left: 45; font-size: 10px; color: white; background: lightslategrey;">
+                Copy (CMD+CTRL+Shift+4) and Paste
+              </div>
+
+              <!-- Canvas Box -->
+              <div style="width:288px;height:280px;border:solid 3px #e8e8e8;overflow-x:scroll;overflow-y:scroll">
+                <canvas id="myCanvas" width="1280" height="768"></canvas>
+              </div>
+            </div>
+
+            <!-- Canvas for Pasted Images -->
+            <!--<div style="width:290px;height:280px;border:solid #e8e8e8;overflow-x:scroll;overflow-y:scroll">
+              <canvas id="myCanvas" width="1024" height="768"></canvas>
+            </div>-->
+
+          </td>
+        </tr>
+      </table>
+        
+      <script>
+          
+      // Listen for paste events on the window object
+      window.addEventListener('paste', event => {
+
+        // Get a reference to the canvas element and its context
+        var canvas = document.getElementById('myCanvas');
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.loaded_image = false
+
+        // Check if the clipboard item is an image
+        const items = event.clipboardData.items;
+        if (items) {
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+              // Get the blob URL for the clipboard image
+              const blob = items[i].getAsFile();
+              const imageURL = URL.createObjectURL(blob);
+
+              // Create a new image object and set its source to the blob URL
+              var image = new Image();              
+              image.src = imageURL;
+
+              // When the image is loaded, draw it onto the canvas
+              image.onload = () => {
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(image, 0, 0);
+                  canvas.loaded_image = true
+              };
+                
+            } // end-if
+          } // end-for
+        } // end-if
+      });
+          
+      </script>
+
+      <script> 
+        document.getElementById("in_progress").style.display="none"; // versus block
+      </script>
+
+    </div>
+  </body>
+</html>
